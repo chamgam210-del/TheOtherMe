@@ -1,0 +1,25 @@
+name: Release Windows app
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Build, sign and publish installer
+        run: npm run release -w desktop
+        env:
+          CLONEME_API_URL: ${{ vars.CLONEME_API_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Optional but strongly recommended: Windows code-signing certificate (.pfx, base64) and its password.
+          CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
