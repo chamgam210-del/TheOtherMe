@@ -1,0 +1,19 @@
+{
+  "name": "cloneme",
+  "private": true,
+  "version": "0.1.0",
+  "description": "cloneME - live video conversations with an AI version of you",
+  "workspaces": ["server", "desktop"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "test": "npm test --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:server": "npm run dev -w server",
+    "dev:desktop": "npm run dev -w desktop",
+    "build:desktop": "npm run dist -w desktop",
+    "setup:voice": "npm run cli -w server -- setup-voice",
+    "setup:replica": "npm run cli -w server -- setup-replica",
+    "setup:persona": "npm run cli -w server -- setup-persona",
+    "measure:latency": "npm run cli -w server -- measure-latency"
+  }
+}
