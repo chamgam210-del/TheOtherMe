@@ -17,6 +17,7 @@ import type { Store } from "../store.js";
 import { startTraining } from "../training/pipeline.js";
 import type { Vendors } from "../vendors/types.js";
 import { endSession } from "./sessions.js";
+import { onboardingRouter, type OnboardingDeps } from "./onboarding.js";
 
 const profileBody = z.object({
   displayName: z.string().trim().min(1).max(80).optional(),
@@ -28,6 +29,7 @@ const profileBody = z.object({
     .max(60)
     .optional(),
   avoidTopics: z.array(z.string().trim().min(1).max(120)).max(100).optional(),
+  answers: z.record(z.string().max(60), z.string().max(2000)).optional(),
 });
 
 const personBody = z.object({
@@ -37,13 +39,36 @@ const personBody = z.object({
   aiBanner: z.boolean().optional(),
 });
 
+function parseMediaMeta(query: Record<string, unknown>) {
+  const duration = Number(query.durationSec);
+  const promptId = typeof query.promptId === "string" && /^[\w-]{1,40}$/.test(query.promptId) ? query.promptId : undefined;
+  const kind = query.promptKind;
+  let quality: Record<string, unknown> | undefined;
+  if (typeof query.quality === "string" && query.quality.length <= 1500) {
+    try {
+      const parsed = JSON.parse(query.quality);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) quality = parsed as Record<string, unknown>;
+    } catch {
+      /* ignore malformed quality blob */
+    }
+  }
+  return {
+    durationSec: Number.isFinite(duration) && duration > 0 && duration <= 4 * 3600 ? Math.round(duration * 10) / 10 : undefined,
+    durationEstimated: query.durationEstimated === "1" ? true : undefined,
+    promptId,
+    promptKind: kind === "reading" || kind === "story" || kind === "free" ? (kind as "reading" | "story" | "free") : undefined,
+    quality,
+  };
+}
+
 const MEDIA_KINDS = ["audio", "video", "photo", "text"] as const;
 const PURPOSES = ["training", "voice", "replica", "consent"] as const;
 
-export function ownerRouter(deps: { config: Config; store: Store; vendors: Vendors }): Router {
+export function ownerRouter(deps: OnboardingDeps): Router {
   const { config, store, vendors } = deps;
   const router = Router();
   router.use(authenticate(config, store), requireOwner);
+  router.use(onboardingRouter(deps));
 
   const publicPerson = (p: (typeof store.data.people)[number]) => ({
     id: p.id,
@@ -154,6 +179,7 @@ export function ownerRouter(deps: { config: Config; store: Store; vendors: Vendo
     const kind = req.query.kind ? String(req.query.kind) : undefined;
     const purpose = String(req.query.purpose ?? "training");
     const speaker = req.query.ownerSpeaker !== undefined ? Number(req.query.ownerSpeaker) : undefined;
+    const meta = parseMediaMeta(req.query);
     if (!filename || !(PURPOSES as readonly string[]).includes(purpose) || (kind && !(MEDIA_KINDS as readonly string[]).includes(kind))) {
       res.status(400).json({ error: "invalid_query", message: "filename, purpose (training|voice|replica|consent) and optional kind are required" });
       return;
@@ -164,6 +190,7 @@ export function ownerRouter(deps: { config: Config; store: Store; vendors: Vendo
         kind: kind as (typeof MEDIA_KINDS)[number] | undefined,
         purpose: purpose as (typeof PURPOSES)[number],
         ownerSpeaker: speaker !== undefined && Number.isInteger(speaker) ? speaker : undefined,
+        ...meta,
       });
       res.status(201).json(item);
     } catch (err) {

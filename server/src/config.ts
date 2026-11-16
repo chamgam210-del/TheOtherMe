@@ -8,6 +8,14 @@ export interface Config {
   sessionSecret: string;
   ownerName: string;
   ownerInviteCode?: string;
+  /** One-time token that lets the first person claim an unclaimed server (set by the deploy template). */
+  setupToken?: string;
+  sessionSecretFromEnv: boolean;
+  personaSecretFromEnv: boolean;
+  persistentStorage: boolean;
+  installerUrl: string;
+  forceMock: boolean;
+  mockRequireVerification: boolean;
   personaSharedSecret: string;
   tavusWebhookSecret: string;
   tokenTtlSeconds: number;
@@ -33,15 +41,12 @@ const num = (v: string | undefined, d: number) => {
 export function loadConfig(env: Env = process.env): Config {
   const forceMock = truthy(env.MOCK_MODE);
   const port = num(env.PORT, 8787);
-  const production = env.NODE_ENV === "production";
+  // Missing secrets are generated and persisted on first start (see ensureInstanceSecrets), so a
+  // non-technical owner never has to invent them. Short values are rejected because they are guessable.
   const sessionSecret = env.SESSION_SECRET || "";
-  if (production && sessionSecret.length < 32) {
-    throw new Error("SESSION_SECRET (>= 32 chars) is required in production");
-  }
+  if (sessionSecret && sessionSecret.length < 32) throw new Error("SESSION_SECRET must be at least 32 characters");
   const personaSharedSecret = env.PERSONA_LLM_SHARED_SECRET || "";
-  if (production && personaSharedSecret.length < 24) {
-    throw new Error("PERSONA_LLM_SHARED_SECRET (>= 24 chars) is required in production");
-  }
+  if (personaSharedSecret && personaSharedSecret.length < 24) throw new Error("PERSONA_LLM_SHARED_SECRET must be at least 24 characters");
   const key = (name: string) => (env[name] && env[name]!.trim() ? env[name]!.trim() : undefined);
   const tavusKey = key("TAVUS_API_KEY");
   const elevenKey = key("ELEVENLABS_API_KEY");
@@ -49,11 +54,18 @@ export function loadConfig(env: Env = process.env): Config {
   const llmKey = key("LLM_API_KEY");
   return {
     port,
-    publicBaseUrl: (env.PUBLIC_BASE_URL || `http://localhost:${port}`).replace(/\/+$/, ""),
+    publicBaseUrl: (env.PUBLIC_BASE_URL || env.RENDER_EXTERNAL_URL || `http://localhost:${port}`).replace(/\/+$/, ""),
     dataDir: path.resolve(env.DATA_DIR || "./data"),
     sessionSecret: sessionSecret || randomBytes(32).toString("hex"),
     ownerName: env.OWNER_NAME || "Owner",
     ownerInviteCode: key("OWNER_INVITE_CODE"),
+    setupToken: key("SETUP_TOKEN"),
+    sessionSecretFromEnv: Boolean(sessionSecret),
+    personaSecretFromEnv: Boolean(personaSharedSecret),
+    persistentStorage: truthy(env.PERSISTENT_STORAGE),
+    installerUrl: env.INSTALLER_URL || "https://github.com/chamgam210-del/TheOtherMe/releases/latest",
+    forceMock,
+    mockRequireVerification: truthy(env.MOCK_REQUIRE_VERIFICATION),
     personaSharedSecret: personaSharedSecret || randomBytes(24).toString("hex"),
     tavusWebhookSecret: env.TAVUS_WEBHOOK_SECRET || "",
     tokenTtlSeconds: num(env.TOKEN_TTL_SECONDS, 60 * 60 * 24 * 30),
@@ -77,4 +89,31 @@ export function loadConfig(env: Env = process.env): Config {
       },
     },
   };
+}
+
+export type VendorKeys = {
+  tavus?: string;
+  elevenlabs?: string;
+  deepgram?: string;
+  llm?: { apiKey?: string; baseUrl?: string; model?: string };
+};
+
+/** Applies owner-supplied keys (saved from the app) on top of the environment. Mutates in place so live clients pick them up. */
+export function applyVendorKeys(config: Config, keys: VendorKeys): void {
+  const v = config.vendors;
+  if (keys.tavus) v.tavus.apiKey = keys.tavus;
+  if (keys.elevenlabs) v.elevenlabs.apiKey = keys.elevenlabs;
+  if (keys.deepgram) v.deepgram.apiKey = keys.deepgram;
+  if (keys.llm?.apiKey) v.llm.apiKey = keys.llm.apiKey;
+  if (keys.llm?.baseUrl) v.llm.baseUrl = keys.llm.baseUrl.replace(/\/+$/, "");
+  if (keys.llm?.model) v.llm.model = keys.llm.model;
+  v.tavus.mock = config.forceMock || !v.tavus.apiKey;
+  v.elevenlabs.mock = config.forceMock || !v.elevenlabs.apiKey;
+  v.deepgram.mock = config.forceMock || !v.deepgram.apiKey;
+  v.llm.mock = config.forceMock || !v.llm.apiKey;
+}
+
+export function clearVendorKey(config: Config, vendor: "tavus" | "elevenlabs" | "deepgram" | "llm"): void {
+  config.vendors[vendor].apiKey = undefined;
+  applyVendorKeys(config, {});
 }

@@ -31,7 +31,17 @@ export async function saveUpload(
   req: Request,
   config: Config,
   store: Store,
-  input: { filename: string; kind?: MediaItem["kind"]; purpose: MediaItem["purpose"]; ownerSpeaker?: number },
+  input: {
+    filename: string;
+    kind?: MediaItem["kind"];
+    purpose: MediaItem["purpose"];
+    ownerSpeaker?: number;
+    durationSec?: number;
+    durationEstimated?: boolean;
+    promptId?: string;
+    promptKind?: MediaItem["promptKind"];
+    quality?: Record<string, unknown>;
+  },
 ): Promise<MediaItem> {
   const mimeType = (req.header("content-type") ?? "application/octet-stream").split(";")[0]!.trim();
   const safeName = path.basename(input.filename).replace(/[^\w.\- ]/g, "_").slice(0, 120) || "upload";
@@ -69,9 +79,23 @@ export async function saveUpload(
     mimeType,
     purpose: input.purpose,
     ownerSpeaker: input.ownerSpeaker,
+    durationSec: input.durationSec,
+    durationEstimated: input.durationEstimated,
+    promptId: input.promptId,
+    promptKind: input.promptKind,
+    quality: input.quality,
     createdAt: new Date().toISOString(),
   };
-  store.update((db) => db.media.push(item));
+  // A re-take replaces the previous recording of the same prompt.
+  const replaced = input.promptId
+    ? store.data.media.filter((m) => m.promptId === input.promptId && m.purpose === input.purpose)
+    : [];
+  store.update((db) => {
+    db.media = db.media.filter((m) => !replaced.includes(m));
+    db.transcripts = db.transcripts.filter((t) => !replaced.some((m) => m.id === t.mediaId));
+    db.media.push(item);
+  });
+  await Promise.all(replaced.map((m) => rm(path.join(dir, m.storedAs), { force: true })));
   return item;
 }
 

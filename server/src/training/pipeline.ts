@@ -108,7 +108,7 @@ export async function runTraining(deps: PipelineDeps, options: PipelineOptions =
   store.update((db) => db.jobs.push(job));
   try {
     const pending = store.data.media.filter(
-      (m) => (m.kind === "audio" || m.kind === "video") && (m.purpose === "training" || m.purpose === "voice") && (options.force || !m.processedAt),
+      (m) => (m.kind === "audio" || m.kind === "video") && (m.purpose === "training" || m.purpose === "voice") && m.promptKind !== "reading" && (options.force || !m.processedAt),
     );
     for (const media of pending) {
       try {

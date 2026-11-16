@@ -29,6 +29,8 @@ export interface Profile {
   occupation?: string;
   family: FamilyMember[];
   avoidTopics: string[];
+  /** Raw questionnaire answers from onboarding, kept so the owner can edit them later. */
+  answers?: Record<string, string>;
   updatedAt: string;
 }
 
@@ -66,6 +68,12 @@ export interface MediaItem {
   mimeType: string;
   purpose: "training" | "voice" | "replica" | "consent";
   ownerSpeaker?: number;
+  /** Seconds of audio/video, reported by the recorder (exact) or estimated from the file. */
+  durationSec?: number;
+  durationEstimated?: boolean;
+  promptId?: string;
+  promptKind?: "reading" | "story" | "free";
+  quality?: Record<string, unknown>;
   transcriptId?: string;
   processedAt?: string;
   error?: string;
@@ -124,7 +132,36 @@ export interface VendorState {
   personaId?: string;
 }
 
+export interface KeyCheck {
+  ok: boolean;
+  message: string;
+  warning?: string;
+  checkedAt: string;
+}
+
+export interface OnboardingState {
+  consentAcceptedAt?: string;
+  consentName?: string;
+  currentStep?: string;
+  skipped: Record<string, boolean>;
+  avoidNone?: boolean;
+  completedAt?: string;
+  keyChecks: Record<string, KeyCheck>;
+}
+
+export type StageStatus = "pending" | "running" | "done" | "waiting" | "failed";
+
+export interface BuildState {
+  startedAt?: string;
+  voiceVerificationConfirmedAt?: string;
+  lastSyncAt?: number;
+  errors: Record<string, string>;
+}
+
 export interface DbShape {
+  instance: { sessionSecret?: string; personaSecret?: string };
+  onboarding: OnboardingState;
+  build: BuildState;
   people: Person[];
   profile: Profile;
   style: StylePack | null;
@@ -139,6 +176,9 @@ export interface DbShape {
 
 export function emptyDb(ownerName: string): DbShape {
   return {
+    instance: {},
+    onboarding: { skipped: {}, keyChecks: {} },
+    build: { errors: {} },
     people: [],
     profile: {
       displayName: ownerName,

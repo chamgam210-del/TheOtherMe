@@ -48,6 +48,9 @@ export async function setupVoice({ config, store, vendors }: SetupDeps, opts: { 
       db.vendor.voiceStatus = "training";
     });
   } catch (err) {
+    store.update((db) => {
+      db.vendor.voiceStatus = "needs_verification";
+    });
     note = `Samples uploaded, but training did not start (${(err as Error).message}). Complete voice verification in the ElevenLabs dashboard, then run setup-voice --train.`;
   }
   return { voiceId, samples: files.length, note };

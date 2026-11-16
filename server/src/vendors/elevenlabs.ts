@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { openAsBlob } from "node:fs";
-import { ensureOk, type ElevenLabsClient, type FetchLike, type UploadFile } from "./types.js";
+import { ensureOk, VendorError, type ElevenLabsClient, type FetchLike, type UploadFile } from "./types.js";
 
 const BASE = "https://api.elevenlabs.io/v1";
 
@@ -84,6 +84,10 @@ export class RealElevenLabs implements ElevenLabsClient {
 export class MockElevenLabs implements ElevenLabsClient {
   readonly mock = true;
   private trained = new Set<string>();
+  private attempts = 0;
+
+  /** With requireVerification the first training attempt fails like an unverified ElevenLabs voice, later ones succeed. */
+  constructor(private opts: { requireVerification?: boolean } = {}) {}
 
   async createPvcVoice() {
     return { voiceId: `mock_voice_${randomUUID().slice(0, 6)}` };
@@ -93,10 +97,13 @@ export class MockElevenLabs implements ElevenLabsClient {
   }
   async requestPvcVerification() {}
   async startPvcTraining(voiceId: string) {
+    if (this.opts.requireVerification && this.attempts++ === 0) {
+      throw new VendorError("elevenlabs", 400, "voice verification required");
+    }
     this.trained.add(voiceId);
   }
   async getVoiceStatus(voiceId: string) {
-    return { status: this.trained.has(voiceId) ? ("ready" as const) : ("created" as const) };
+    return { status: this.trained.has(voiceId) ? ("ready" as const) : ("needs_verification" as const) };
   }
   async ttsFirstByteMs() {
     await new Promise((r) => setTimeout(r, 5));

@@ -6,6 +6,7 @@ import { createApp, type AppContext } from "../src/app.js";
 import { addPerson } from "../src/auth.js";
 import { loadConfig, type Config } from "../src/config.js";
 import { Store } from "../src/store.js";
+import { createVendors } from "../src/vendors/index.js";
 import { MockDeepgram } from "../src/vendors/deepgram.js";
 import { MockElevenLabs } from "../src/vendors/elevenlabs.js";
 import { MockTavus } from "../src/vendors/tavus.js";
@@ -36,8 +37,8 @@ export class RecordingTavus extends MockTavus {
   }
 }
 
-export function makeCtx(env: Record<string, string> = {}, vendorOverrides: Partial<Vendors> = {}) {
-  const dir = mkdtempSync(path.join(tmpdir(), "cloneme-"));
+export function makeCtx(env: Record<string, string> = {}, vendorOverrides: Partial<Vendors> = {}, extra: { fetchImpl?: typeof fetch; dir?: string; dynamicVendors?: boolean } = {}) {
+  const dir = extra.dir ?? mkdtempSync(path.join(tmpdir(), "cloneme-"));
   const config: Config = loadConfig({
     MOCK_MODE: "true",
     DATA_DIR: dir,
@@ -56,7 +57,7 @@ export function makeCtx(env: Record<string, string> = {}, vendorOverrides: Parti
     llm: new RecordingLlm(),
     ...vendorOverrides,
   };
-  const ctx: AppContext = createApp({ config, store, vendors });
+  const ctx: AppContext = createApp({ config, store, vendors: extra.dynamicVendors ? createVendors(config) : vendors, fetchImpl: extra.fetchImpl });
   return { ...ctx, dir, tavus: vendors.tavus as RecordingTavus, llm: vendors.llm as RecordingLlm, api: request(ctx.app) };
 }
 

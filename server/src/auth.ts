@@ -1,4 +1,4 @@
-import { createHash, createHmac, randomInt, timingSafeEqual } from "node:crypto";
+import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import type { Config } from "./config.js";
 import { newId, type Person, type Role, type Store } from "./store.js";
@@ -48,7 +48,19 @@ export function addPerson(
   return { person, code };
 }
 
-export function ensureOwner(store: Store, config: Config): { created: boolean; code?: string } {
+/** Generates and persists the signing secrets when the host did not provide them. Must run before any token is signed. */
+export function ensureInstanceSecrets(store: Store, config: Config): void {
+  if (!config.sessionSecretFromEnv) {
+    if (!store.data.instance.sessionSecret) store.update((db) => (db.instance.sessionSecret = randomBytes(32).toString("hex")));
+    config.sessionSecret = store.data.instance.sessionSecret!;
+  }
+  if (!config.personaSecretFromEnv) {
+    if (!store.data.instance.personaSecret) store.update((db) => (db.instance.personaSecret = randomBytes(24).toString("hex")));
+    config.personaSharedSecret = store.data.instance.personaSecret!;
+  }
+}
+
+export function ensureOwner(store: Store, config: Config): { created: boolean; code?: string; awaitingClaim?: boolean } {
   const existing = store.data.people.find((p) => p.role === "owner");
   if (existing) {
     if (config.ownerInviteCode && existing.codeHash !== hashCode(config.ownerInviteCode)) {
@@ -58,6 +70,7 @@ export function ensureOwner(store: Store, config: Config): { created: boolean; c
     }
     return { created: false };
   }
+  if (config.setupToken && !config.ownerInviteCode) return { created: false, awaitingClaim: true };
   const code = config.ownerInviteCode ?? generateInviteCode();
   const person: Person = {
     id: newId("per"),
@@ -156,3 +169,24 @@ export function requireOwner(req: Request, res: Response, next: NextFunction) {
   }
   next();
 }
+
+export function claimOwner(store: Store, name: string): { person: Person; code: string } {
+  const code = generateInviteCode();
+  const person: Person = {
+    id: newId("per"),
+    name: name.trim(),
+    role: "owner",
+    relationship: "self",
+    codeHash: hashCode(code),
+    aiBanner: false,
+    revoked: false,
+    createdAt: new Date().toISOString(),
+  };
+  store.update((db) => {
+    db.people.push(person);
+    db.profile.displayName = person.name;
+  });
+  return { person, code };
+}
+
+export const safeCompare = safeEqual;

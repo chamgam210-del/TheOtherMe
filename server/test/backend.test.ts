@@ -63,8 +63,9 @@ describe("invite-code auth", () => {
     expect((await ctx.api.post("/api/auth/redeem").send({ code: friend.code })).status).toBe(401);
   });
 
-  it("requires production secrets", () => {
-    expect(() => loadConfig({ NODE_ENV: "production" })).toThrow(/SESSION_SECRET/);
+  it("rejects short secrets from the environment", () => {
+    expect(() => loadConfig({ SESSION_SECRET: "short" })).toThrow(/SESSION_SECRET/);
+    expect(() => loadConfig({ PERSONA_LLM_SHARED_SECRET: "short" })).toThrow(/PERSONA_LLM_SHARED_SECRET/);
   });
 });
 
