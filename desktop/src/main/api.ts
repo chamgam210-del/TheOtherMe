@@ -8,6 +8,7 @@ export class ApiError extends Error {
     message: string,
     public code: string,
     public status: number,
+    public details?: unknown,
   ) {
     super(message);
   }
@@ -45,6 +46,14 @@ export class ApiClient {
     this.tokens.set(null);
   }
 
+  setBaseUrl(url: string) {
+    this.baseUrl = url.replace(/\/+$/, "");
+  }
+
+  adopt(token: string) {
+    this.tokens.set(token);
+  }
+
   async request<T>(method: string, route: string, body?: unknown, init: RequestInit = {}): Promise<T> {
     const token = this.tokens.get();
     const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
@@ -69,7 +78,7 @@ export class ApiClient {
         this.tokens.set(null);
         this.onUnauthorized();
       }
-      throw new ApiError(humanMessage(res.status, code, json?.message), code, res.status);
+      throw new ApiError(humanMessage(res.status, code, json?.message), code, res.status, json);
     }
     return json as T;
   }
@@ -96,15 +105,36 @@ export class ApiClient {
     return this.request<{ reply: string }>("POST", `/api/sessions/${encodeURIComponent(id)}/text`, { text });
   }
 
-  async uploadFile(filePath: string, purpose: MediaPurpose): Promise<MediaItem> {
+  uploadFile(filePath: string, purpose: MediaPurpose, meta: UploadMeta = {}): Promise<MediaItem> {
     const size = statSync(filePath).size;
-    const query = new URLSearchParams({ filename: path.basename(filePath), purpose });
+    return this.upload(Readable.toWeb(createReadStream(filePath)) as unknown as BodyInit, path.basename(filePath), mimeFor(filePath), size, purpose, meta);
+  }
+
+  uploadBytes(data: Uint8Array, filename: string, mimeType: string, purpose: MediaPurpose, meta: UploadMeta = {}): Promise<MediaItem> {
+    return this.upload(data as unknown as BodyInit, filename, mimeType, data.byteLength, purpose, meta);
+  }
+
+  private upload(body: BodyInit, filename: string, mime: string, size: number, purpose: MediaPurpose, meta: UploadMeta) {
+    const query = new URLSearchParams({ filename, purpose });
+    if (meta.durationSec) query.set("durationSec", String(meta.durationSec));
+    if (meta.durationEstimated) query.set("durationEstimated", "1");
+    if (meta.promptId) query.set("promptId", meta.promptId);
+    if (meta.promptKind) query.set("promptKind", meta.promptKind);
+    if (meta.quality) query.set("quality", JSON.stringify(meta.quality).slice(0, 1400));
     return this.request<MediaItem>("PUT", `/api/owner/media?${query}`, undefined, {
-      headers: { "content-type": mimeFor(filePath), "content-length": String(size) },
-      body: Readable.toWeb(createReadStream(filePath)) as unknown as BodyInit,
+      headers: { "content-type": mime, "content-length": String(size) },
+      body,
       duplex: "half",
     } as RequestInit);
   }
+}
+
+export interface UploadMeta {
+  durationSec?: number;
+  durationEstimated?: boolean;
+  promptId?: string;
+  promptKind?: "reading" | "story" | "free";
+  quality?: Record<string, unknown>;
 }
 
 function safeJson(text: string): any {
@@ -116,6 +146,9 @@ function safeJson(text: string): any {
 }
 
 function humanMessage(status: number, code: string, serverMessage?: string): string {
+  if (code === "invalid_setup_token") return "That setup token is not right. Copy SETUP_TOKEN again from your server's environment settings.";
+  if (code === "already_claimed") return "This server already has an owner. Use \"I already set up\" and sign in with your owner code.";
+  if (code === "precondition") return serverMessage ?? "Something is still missing.";
   if (code === "invalid_code") return "That invite code didn't work. Check it and try again.";
   if (code === "too_many_attempts") return "Too many tries. Wait a few minutes and try again.";
   if (code === "unauthorized") return "Your access has ended. Ask for a new invite code.";

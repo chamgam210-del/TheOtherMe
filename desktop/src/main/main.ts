@@ -5,6 +5,7 @@ import { autoUpdater } from "electron-updater";
 import { BRIDGE_METHODS, type MediaPurpose, type UpdateStatus } from "../shared/bridge.js";
 import { ApiClient, ApiError } from "./api.js";
 import { createHandlers } from "./handlers.js";
+import { Settings } from "./settings.js";
 import { FileTokenStore } from "./tokenStore.js";
 
 const DEFAULT_API_URL = (() => {
@@ -14,6 +15,11 @@ const DEFAULT_API_URL = (() => {
     return "http://localhost:8787";
   }
 })();
+
+if (process.env.CLONEME_FAKE_MEDIA) {
+  app.commandLine.appendSwitch("use-fake-device-for-media-stream");
+  app.commandLine.appendSwitch("use-fake-ui-for-media-stream");
+}
 
 let win: BrowserWindow | null = null;
 
@@ -68,7 +74,8 @@ function setupUpdater() {
 }
 
 app.whenReady().then(() => {
-  const apiBaseUrl = process.env.CLONEME_API_URL || DEFAULT_API_URL;
+  const settings = new Settings(app.getPath("userData"));
+  const apiBaseUrl = process.env.CLONEME_API_URL || settings.serverUrl || DEFAULT_API_URL;
   const tokens = new FileTokenStore(app.getPath("userData"), {
     available: () => safeStorage.isEncryptionAvailable(),
     encrypt: (s) => safeStorage.encryptString(s),
@@ -78,6 +85,8 @@ app.whenReady().then(() => {
   const handlers = createHandlers({
     api,
     version: app.getVersion(),
+    settings,
+    openExternal: (url) => shell.openExternal(url),
     pickFiles: async (purpose: MediaPurpose) => {
       const filters =
         purpose === "voice" ? [{ name: "Audio", extensions: ["wav", "mp3", "m4a", "flac", "ogg"] }]

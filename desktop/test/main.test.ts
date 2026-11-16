@@ -9,6 +9,7 @@ import { loadConfig } from "../../server/src/config.js";
 import { Store } from "../../server/src/store.js";
 import { ApiClient, ApiError, mimeFor, type TokenStore } from "../src/main/api.js";
 import { createHandlers } from "../src/main/handlers.js";
+import { Settings } from "../src/main/settings.js";
 import { FileTokenStore, type Crypto } from "../src/main/tokenStore.js";
 
 const memoryTokens = (): TokenStore & { value: string | null } => ({
@@ -41,7 +42,7 @@ describe("desktop main process against the real backend (mock vendors)", () => {
   const make = (onUnauthorized = () => {}) => {
     const tokens = memoryTokens();
     const api = new ApiClient(base, tokens, onUnauthorized);
-    const handlers = createHandlers({ api, version: "1.2.3", pickFiles: async () => [] });
+    const handlers = createHandlers({ api, version: "1.2.3", settings: new Settings(mkdtempSync(path.join(tmpdir(), "set-"))), pickFiles: async () => [] });
     return { api, tokens, handlers };
   };
 
@@ -89,7 +90,7 @@ describe("desktop main process against the real backend (mock vendors)", () => {
     const notes = path.join(dir, "notes.txt");
     writeFileSync(notes, "I grew up in Portland and I love hiking.\nHonestly it's been a great year, you know?");
     const { api } = make();
-    const handlers = createHandlers({ api, version: "x", pickFiles: async () => [notes, path.join(dir, "missing.txt")] });
+    const handlers = createHandlers({ api, version: "x", settings: new Settings(mkdtempSync(path.join(tmpdir(), "set-"))), pickFiles: async () => [notes, path.join(dir, "missing.txt")] });
     await handlers.signIn("OWNR-TEST-CODE");
 
     const saved = await handlers.saveProfile({ basics: "Designer.", avoidTopics: ["politics"] });
