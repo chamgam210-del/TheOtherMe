@@ -1,10 +1,17 @@
 import type { Fact, ManagedPerson, MediaPurpose, Person, Profile, RendererBridge, SessionInfo } from "../shared/bridge.js";
 import type { CreateCall, CallHandle } from "./call.js";
 import { clear, errorText, h } from "./dom.js";
+import { parseInvite } from "../shared/invite.js";
+import { browserRecorders, type Recorders } from "./media.js";
+import { mountWizard } from "./wizard/index.js";
+import type { StepId } from "../shared/wizard.js";
 
 export interface AppDeps {
   bridge: RendererBridge;
   createCall: CreateCall;
+  recorders?: Recorders;
+  /** Poll interval for live build status, in milliseconds. */
+  pollMs?: number;
 }
 
 type OwnerTab = "overview" | "upload" | "profile" | "style" | "people";
@@ -21,6 +28,7 @@ const pct = (n: number) => `${Math.round(n * 100)}%`;
 
 export function mountApp(root: HTMLElement, deps: AppDeps) {
   const { bridge, createCall } = deps;
+  const recorders = deps.recorders ?? browserRecorders;
   let person: Person | null = null;
   let activeCall: { handle: CallHandle; session: SessionInfo; timer?: ReturnType<typeof setInterval> } | null = null;
 
@@ -64,7 +72,8 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
   // ---------- sign in ----------
   function renderSignIn(notice?: string) {
     clear(shell);
-    const input = h("input", { id: "code", type: "text", placeholder: "XXXX-XXXX-XXXX", autocomplete: "off", spellcheck: false, maxLength: 20, "aria-label": "Invite code" });
+    const input = h("input", { id: "code", type: "text", placeholder: "XXXX-XXXX-XXXX", autocomplete: "off", spellcheck: false, maxLength: 300, "aria-label": "Invite code" });
+    const server = h("input", { id: "server-address", type: "text", placeholder: "https://… (only if you were given one)", autocomplete: "off", spellcheck: false, "aria-label": "Server address" });
     const error = h("p", { class: "error", role: "alert" }, notice);
     const button = h("button", { class: "primary", type: "submit" }, "Continue");
     const form = h(
@@ -78,8 +87,9 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
             button.disabled = true;
             error.textContent = "";
             try {
-              person = await bridge.signIn(input.value);
-              renderHome();
+              const invite = parseInvite(input.value);
+              person = await bridge.signIn(invite?.code ?? input.value, invite?.serverUrl ?? (server.value.trim() || undefined));
+              await routeAfterSignIn();
             } catch (err) {
               error.textContent = errorText(err);
               button.disabled = false;
@@ -90,11 +100,62 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
       h("h1", {}, "Welcome"),
       h("p", { class: "muted" }, "Enter the invite code you were given to start talking."),
       input,
+      h("details", {}, h("summary", {}, "I was given a server address too"), h("div", { class: "field" }, server)),
       button,
       error,
+      h("hr"),
+      h("p", { class: "muted" }, "Want your own AI self?"),
+      h("button", { type: "button", id: "start-setup", on: { click: () => void openWizard() } }, "Set up my own AI self"),
     );
     shell.append(h("main", { class: "center" }, form));
     input.focus();
+  }
+
+  async function routeAfterSignIn() {
+    if (person?.role === "owner") {
+      let onboarding: Awaited<ReturnType<typeof bridge.getOnboarding>> = null;
+      try {
+        onboarding = await bridge.getOnboarding();
+      } catch {
+        onboarding = null;
+      }
+      if (onboarding && !onboarding.state.completedAt && !onboarding.facts.ready) return void openWizard();
+    }
+    renderHome();
+  }
+
+  // ---------- setup guide ----------
+  async function openWizard(opts: { free?: boolean; startStep?: StepId } = {}) {
+    await teardownCall();
+    try {
+      await mountWizard(shell, {
+        bridge,
+        recorders,
+        say,
+        pollMs: deps.pollMs,
+        freeNavigation: opts.free,
+        startStep: opts.startStep,
+        startTestCall: async () => {
+          person = (await bridge.getState()).person;
+          await startCall({ returnTo: () => void openWizard({ free: opts.free, startStep: "test" }) });
+        },
+        onExit: async (connected) => {
+          if (connected) {
+            person = (await bridge.getState().catch(() => null))?.person ?? person;
+            renderHome();
+          } else renderSignIn();
+        },
+        onFinished: async () => {
+          const state = await bridge.getState().catch(() => null);
+          person = state?.person ?? person;
+          say("Your AI self is set up. Share it with the people you invited.", "info");
+          renderHome();
+        },
+      });
+    } catch (err) {
+      say(errorText(err));
+      renderSignIn();
+    }
   }
 
   // ---------- home ----------
@@ -116,6 +177,7 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
     );
     if (me.role === "owner") {
       actions.append(h("button", { id: "owner-mode", on: { click: () => renderOwner("overview") } }, "Owner mode"));
+      actions.append(h("button", { id: "setup-guide", on: { click: () => void openWizard({ free: true }) } }, "Setup guide"));
     }
     actions.append(
       h("button", { class: "ghost", id: "sign-out", on: { click: async () => { await bridge.signOut(); person = null; renderSignIn(); } } }, "Sign out"),
@@ -124,8 +186,9 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
   }
 
   // ---------- talk ----------
-  async function startCall() {
+  async function startCall(opts: { returnTo?: () => void } = {}) {
     if (!person) return;
+    const exit = opts.returnTo ?? renderHome;
     const me = person;
     clear(shell);
     const status = h("div", { class: "call-status" }, "Connecting…");
@@ -135,7 +198,7 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
       session = await bridge.startSession();
     } catch (err) {
       say(errorText(err));
-      return renderHome();
+      return exit();
     }
 
     const remoteVideo = h("video", { class: "remote", autoplay: true, playsInline: true });
@@ -182,7 +245,7 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
       if (activeCall) await teardownCall();
       else await bridge.endSession(session.sessionId).catch(() => undefined);
       if (message) say(message, "info");
-      renderHome();
+      exit();
     }
 
     clear(shell);
@@ -405,8 +468,17 @@ export function mountApp(root: HTMLElement, deps: AppDeps) {
     try {
       const state = await bridge.getState();
       person = state.person;
-      if (person) renderHome();
-      else renderSignIn();
+      if (person) await routeAfterSignIn();
+      else {
+        let saved: Awaited<ReturnType<typeof bridge.getLocalWizard>> | null = null;
+        try {
+          saved = await bridge.getLocalWizard();
+        } catch {
+          saved = null;
+        }
+        if (saved?.currentStep) void openWizard();
+        else renderSignIn();
+      }
     } catch {
       renderSignIn();
     }

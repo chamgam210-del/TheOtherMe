@@ -20,3 +20,13 @@ export function errorText(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err);
   return message.replace(/^Error invoking remote method '[^']+': (Error: )?/, "");
 }
+
+const present = <T,>(c: T | null | undefined | false): c is T => Boolean(c);
+
+export function put(parent: Element, ...children: (Node | string | null | undefined | false)[]) {
+  parent.append(...children.filter(present));
+}
+
+export function swap(parent: Element, ...children: (Node | string | null | undefined | false)[]) {
+  parent.replaceChildren(...children.filter(present));
+}

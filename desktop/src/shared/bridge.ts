@@ -197,7 +197,7 @@ export interface LocalWizard {
 }
 
 export interface Bridge {
-  getState(): Promise<{ apiBaseUrl: string; person: Person | null; version: string; hasCustomServer: boolean }>;
+  getState(): Promise<{ apiBaseUrl: string; person: Person | null; version: string; serverUrl: string | null }>;
   signIn(code: string, serverUrl?: string): Promise<Person>;
   openExternal(url: string): Promise<void>;
   checkServer(url: string): Promise<ServerCheck>;

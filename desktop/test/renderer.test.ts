@@ -21,7 +21,9 @@ function setup(initial: Person | null, over: Partial<RendererBridge> = {}) {
   };
   const listeners: { signedOut?: (r: string) => void } = {};
   const bridge = {
-    getState: vi.fn(async () => ({ apiBaseUrl: "http://x", person: initial, version: "1" })),
+    getState: vi.fn(async () => ({ apiBaseUrl: "http://x", person: initial, version: "1", serverUrl: null })),
+    getLocalWizard: vi.fn(async () => ({})),
+    getOnboarding: vi.fn(async () => ({ state: { skipped: {}, completedAt: "2026-01-01T00:00:00Z" }, facts: { ready: true } })),
     signIn: vi.fn(async (code: string) => {
       if (code !== "GOOD-CODE-1234") throw new Error("That invite code didn't work. Check it and try again.");
       return friend;
@@ -61,7 +63,7 @@ describe("renderer", () => {
     input.value = "GOOD-CODE-1234";
     $(root, "form").dispatchEvent(new Event("submit", { cancelable: true }));
     await flush();
-    expect(bridge.signIn).toHaveBeenCalledWith("GOOD-CODE-1234");
+    expect(bridge.signIn).toHaveBeenCalledWith("GOOD-CODE-1234", undefined);
     expect(root.textContent).toContain("Hi, Alex");
     expect(root.textContent).toContain("Talk to Sam Rivera");
     expect(root.querySelector("#owner-mode")).toBeNull();

@@ -22,11 +22,6 @@ export interface HandlerDeps {
 export function createHandlers({ api, version, settings, keyStage, fetchImpl = fetch, openExternal = () => undefined, pickFiles }: HandlerDeps): Bridge {
   let person: Person | null = null;
   const stage = keyStage ?? new KeyStage(fetchImpl);
-  const defaultUrl = api.baseUrl;
-  const useServer = (url: string) => {
-    api.setBaseUrl(url);
-    settings.setServerUrl(url);
-  };
 
   async function flushStagedKeys(): Promise<Record<string, KeyResult>> {
     const pending = stage.take();
@@ -51,7 +46,7 @@ export function createHandlers({ api, version, settings, keyStage, fetchImpl = f
       if (api.signedIn && !person) {
         person = (await api.me().catch(() => null))?.person ?? null;
       }
-      return { apiBaseUrl: api.baseUrl, person: api.signedIn ? person : null, version, hasCustomServer: api.baseUrl !== defaultUrl };
+      return { apiBaseUrl: api.baseUrl, person: api.signedIn ? person : null, version, serverUrl: settings.serverUrl ?? null };
     },
     async signIn(code, serverUrl) {
       if (serverUrl) {
