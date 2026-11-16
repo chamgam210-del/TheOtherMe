@@ -1,0 +1,28 @@
+appId: com.cloneme.desktop
+productName: cloneME
+copyright: cloneME
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**
+  - package.json
+asar: true
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+  # Code signing: set CSC_LINK (path/URL/base64 of the .pfx) and CSC_KEY_PASSWORD in the build environment.
+  # Without them the installer is unsigned and Windows SmartScreen will warn.
+nsis:
+  artifactName: cloneME-Setup-${version}.exe
+  oneClick: true
+  perMachine: false
+  deleteAppDataOnUninstall: false
+  runAfterFinish: true
+publish:
+  provider: github
+  owner: chamgam210-del
+  repo: TheOtherMe
+  releaseType: release
