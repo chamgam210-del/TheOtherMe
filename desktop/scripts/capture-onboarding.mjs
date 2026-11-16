@@ -131,13 +131,61 @@ await next();
 // 4 voice: one real in-app recording, the rest generated
 await waitFor(exists("#voice-record"));
 await shot("04-voice-start");
+// First take uses Chromium's fake microphone (a loud beep in silence), which the clip check rightly rejects.
+await click("#voice-record");
+await sleep(22000);
+await click("#voice-stop");
+await waitFor(exists("#voice-stats"));
+await shot("04-voice-clip-check-rejected", { scrollTo: "#voice-stats" });
+
+// Second take: the same recorder code, but the microphone is replaced by a synthesized speech-like signal.
+await js(`(() => {
+  const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (c) => {
+    if (!(c && c.audio && !c.video)) return orig(c);
+    const ctx = new AudioContext();
+    await ctx.resume();
+    const dest = ctx.createMediaStreamDestination();
+    const gain = ctx.createGain();
+    gain.gain.value = 0;
+    for (const [mult, amp] of [[1, 0.5], [2, 0.3], [3, 0.2], [4, 0.1]]) {
+      const o = ctx.createOscillator();
+      o.frequency.value = 130 * mult;
+      const g = ctx.createGain();
+      g.gain.value = amp;
+      o.connect(g).connect(gain);
+      o.start();
+    }
+    gain.connect(dest);
+    const noise = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const nd = noise.getChannelData(0);
+    for (let i = 0; i < nd.length; i++) nd[i] = (Math.random() * 2 - 1) * 0.0015;
+    const ns = ctx.createBufferSource();
+    ns.buffer = noise;
+    ns.loop = true;
+    ns.connect(dest);
+    ns.start();
+    let t = ctx.currentTime;
+    for (let i = 0; i < 400; i++) {
+      const len = 0.18 + Math.random() * 0.2;
+      gain.gain.setTargetAtTime(0.16 + Math.random() * 0.12, t, 0.02);
+      t += len;
+      gain.gain.setTargetAtTime(0, t, 0.02);
+      t += 0.08 + Math.random() * 0.12;
+    }
+    return dest.stream;
+  };
+})()`);
+await click('[data-step="keys"]');
+await click('[data-step="voice"]');
+await waitFor(exists("#voice-record"));
 await click("#voice-record");
 await sleep(8000);
 await shot("04-voice-recording");
-await sleep(14000);
+await sleep(16000);
 await click("#voice-stop");
 await waitFor(exists("#voice-stats"));
-await shot("04-voice-clip-check");
+await shot("04-voice-clip-check-ok", { scrollTo: "#voice-stats" });
 const keepEnabled = await js(enabled("#voice-keep"));
 if (keepEnabled) await click("#voice-keep");
 await js(`(async () => {
@@ -161,7 +209,7 @@ await js(`(async () => {
   const items = [...document.querySelectorAll('.prompt-item')].map((b) => b.dataset.prompt).filter((id) => !have.has(id));
   let seconds = 0;
   for (const id of items) {
-    if (seconds >= 1500) break;
+    if (seconds >= 1860) break;
     const kind = id.startsWith('read') ? 'reading' : 'story';
     const dur = kind === 'reading' ? 90 : 120;
     await window.cloneme.uploadRecording({ purpose: 'voice', filename: id + '.wav', mimeType: 'audio/wav', data: wav(dur), durationSec: dur, promptId: id, promptKind: kind });

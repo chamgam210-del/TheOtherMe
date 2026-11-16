@@ -42,7 +42,9 @@ describe("audio clip checks", () => {
     const quiet = analyzeAudio(signal({ seconds: 30, speechAmp: 0.008, noiseAmp: 0.00001 }), SR);
     expect(quiet.verdict).toBe("fail");
     expect(quiet.issues.join(" ")).toMatch(/quiet/i);
-    expect(analyzeAudio(new Float32Array(SR * 30), SR).issues.join(" ")).toMatch(/silent/i);
+    const silent = analyzeAudio(new Float32Array(SR * 30), SR);
+    expect(silent.issues.join(" ")).toMatch(/silent/i);
+    expect(silent.issues.join(" ")).not.toMatch(/noise/i);
   });
 
   it("detects clipping", () => {

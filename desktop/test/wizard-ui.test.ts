@@ -137,7 +137,7 @@ function fakeBridge() {
       connected: db.connected,
       mockMode: false,
       llm: { baseUrl: "https://api.openai.com/v1", model: "gpt-4o" },
-      vendors: Object.fromEntries(vendors.map((v) => [v, { saved: db.savedKeys.has(v), staged: db.stagedKeys.has(v), source: db.savedKeys.has(v) ? "app" : null, check: db.savedKeys.has(v) ? { ok: true, message: "ok", checkedAt: "now" } : null, warning: null }])),
+      vendors: Object.fromEntries(vendors.map((v) => [v, { saved: db.savedKeys.has(v), staged: db.stagedKeys.has(v), source: db.savedKeys.has(v) ? "app" : null, check: db.savedKeys.has(v) ? { ok: true, message: "ok", checkedAt: "now" } : null, warning: v === "elevenlabs" && (db.savedKeys.has(v) || db.stagedKeys.has(v)) ? "This plan does not include Professional Voice Cloning." : null }])),
     })),
     recheckKeys: vi.fn(async () => ({ results: {} })),
     getOnboarding: vi.fn(async (): Promise<OnboardingData | null> =>
@@ -318,7 +318,8 @@ describe("onboarding wizard UI", () => {
 
     await addAllKeys(m);
     expect($<HTMLInputElement>(m.root, "#key-tavus").value).toBe("");
-    expect($(m.root, "#result-elevenlabs").textContent).toContain("Professional Voice Cloning");
+    expect($(m.root, "#result-elevenlabs").textContent).toContain("key works");
+    expect($(m.root, '[data-vendor="elevenlabs"]').textContent).toContain("Professional Voice Cloning");
     expect(m.root.textContent).not.toContain("good-tavus-key-123");
     expect(next().disabled).toBe(false);
   });

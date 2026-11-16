@@ -80,7 +80,8 @@ export function createHandlers({ api, version, settings, keyStage, fetchImpl = f
         if (!res.ok || !body || body.app !== "cloneme") {
           return { ...none, reachable: true, message: "Something answered, but it is not a cloneME server. Check the address you copied." };
         }
-        const https = url.startsWith("https://");
+        // Plain http is accepted for a server on this same computer, used for local testing in mock mode.
+        const https = url.startsWith("https://") || /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(url);
         return {
           reachable: true,
           isCloneme: true,

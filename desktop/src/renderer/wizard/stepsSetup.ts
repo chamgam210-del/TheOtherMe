@@ -85,7 +85,7 @@ export const keysStep: StepRenderer = async (el, ctx) => {
           swap(result, callout("info", "Settings saved."));
         } else if (r.ok) {
           input.value = "";
-          lastResult.set(vendor, [callout("ok", r.message), ...(r.warning ? [callout("warn", r.warning)] : [])]);
+          lastResult.set(vendor, [callout("ok", r.message)]);
           await render();
         } else {
           swap(result, callout("error", r.message));
@@ -231,7 +231,7 @@ export const serverStep: StepRenderer = async (el, ctx) => {
   put(el, 
     section("Why you need a server",
       h("p", {}, "Your AI self needs a small always-on program on the internet. It holds your keys safely, remembers your conversations, and answers when a friend calls. We use Render, which sets this up with one click and a few minutes of waiting."),
-      h("p", { class: "muted" }, "Cost: Render's Starter plan (about $7 a month) plus a small storage disk (about $1 a month). You can cancel in Render at any time.")),
+      h("p", { class: "muted" }, "Cost: Render's Starter plan (about $7 a month) plus a 10 GB storage disk (about $2.50 a month); check Render for current prices. You can cancel in Render at any time.")),
     section("1. Create your server",
       steps([
         "Press the button below. Render opens in your browser; create a free Render account if asked.",

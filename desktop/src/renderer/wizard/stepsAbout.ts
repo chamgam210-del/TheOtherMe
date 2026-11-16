@@ -206,7 +206,7 @@ export const inviteStep: StepRenderer = async (el, ctx) => {
 
   const showCode = (person: string, code: string) => {
     const data = ctx.data();
-    const msg = shareMessage({ friendName: person, ownerName: ctx.ownerName() || ctx.facts().consent.name, installerUrl: data?.installerUrl ?? "", serverUrl: data?.serverUrl || ctx.serverUrl(), code });
+    const msg = shareMessage({ friendName: person, ownerName: ctx.ownerName() || ctx.facts().consent.name, installerUrl: data?.installerUrl ?? "", serverUrl: ctx.serverUrl() || data?.serverUrl || "", code });
     const box = h("textarea", { id: "invite-message", rows: 9, readOnly: true, value: msg });
     clear(reveal);
     put(reveal, h("div", { class: "callout ok" },

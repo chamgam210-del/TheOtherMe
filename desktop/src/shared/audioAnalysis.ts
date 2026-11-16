@@ -61,13 +61,16 @@ export function analyzeAudio(samples: Float32Array, sampleRate: number, opts: { 
 
   const min = opts.minSeconds ?? MIN_CLIP_SECONDS;
   if (durationSec < min) fail(`Too short (${Math.round(durationSec)}s)`, `Record at least ${min} seconds so the voice model gets enough to learn from.`);
-  if (peak === 0 || speechDb < -45) fail("Almost silent", "Check that the right microphone is selected in Windows and that it is not muted.");
+  const silent = peak === 0 || speechDb < -45;
+  if (silent) fail("Almost silent", "Check that the right microphone is selected in Windows and that it is not muted.");
   else if (speechDb < -38) fail("Too quiet", "Move closer to the microphone or raise the input level in Windows sound settings.");
   else if (speechDb < -30) warn("A bit quiet", "Move a little closer to the microphone.");
   if (clippingPercent > 0.5) fail("Distorted (clipping)", "Lower the microphone input level or sit further back. Loud peaks are cut off.");
   else if (clippingPercent > 0.05) warn("Some clipping", "Speak slightly softer or lower the input level.");
   if (speechRatio < 0.3 && state.verdict !== "fail") fail("Mostly silence", "Keep talking: reading continuously or telling a story works best.");
-  if (noiseFloorDb > -35 || snrDb < 12) fail("Too much background noise", "Find a quieter room, close windows, and turn off fans and notifications.");
+  if (silent) {
+    // Noise and signal-to-noise numbers are meaningless without a signal.
+  } else if (noiseFloorDb > -35 || snrDb < 12) fail("Too much background noise", "Find a quieter room, close windows, and turn off fans and notifications.");
   else if (noiseFloorDb > -50 || snrDb < 25) warn("Some background noise", "A quieter room or a closer microphone gives a cleaner clone.");
 
   const r = (n: number) => Math.round(n * 10) / 10;

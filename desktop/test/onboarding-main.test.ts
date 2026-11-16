@@ -68,7 +68,7 @@ describe("onboarding in the desktop main process", () => {
 
   it("checks a server's health in plain language", async () => {
     const { handlers } = make();
-    expect(await handlers.checkServer(base)).toMatchObject({ reachable: true, isCloneme: true, claimed: false, claimable: true, persistentStorage: true, https: false });
+    expect(await handlers.checkServer(base)).toMatchObject({ reachable: true, isCloneme: true, claimed: false, claimable: true, persistentStorage: true, https: true });
     expect((await handlers.checkServer("")).message).toMatch(/does not look right/);
     expect((await handlers.checkServer("http://127.0.0.1:9")).reachable).toBe(false);
   });

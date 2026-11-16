@@ -26,7 +26,7 @@ flowchart LR
 | Vendor clients | `server/src/vendors/` | Tavus, ElevenLabs (PVC), Deepgram (Nova-3), any OpenAI-compatible LLM. Each has a real client and a mock. |
 | Setup | `server/src/setup.ts`, `server/src/cli.ts` | Create the ElevenLabs voice clone, Tavus replica and Tavus persona (voice wired in). |
 | Training | `server/src/training/` | Deepgram transcription, owner-speaker selection, style and fact extraction, persona refresh. |
-| Windows app | `desktop/` | Electron app (NSIS installer, auto-update). Never sees an API key. |
+| Windows app | `desktop/` | Electron app (NSIS installer, auto-update) with the guided setup wizard (`desktop/src/renderer/wizard/`, state machine in `desktop/src/shared/wizard.ts`). Keys are tested in memory and stored on the server only. |
 | Latency | `server/src/scripts/measureLatency.ts` | `npm run measure:latency` |
 
 ## Quick start (everything in mock mode, no keys needed)
@@ -41,11 +41,13 @@ MOCK_MODE=true OWNER_INVITE_CODE=OWNR-TEST-CODE OWNER_NAME="Your Name" npm run d
 CLONEME_API_URL=http://localhost:8787 npm run dev:desktop   # in another terminal
 ```
 
-Sign in with `OWNR-TEST-CODE`, press **Talk**, and use **Text** to chat. In mock mode there is no live video; the persona replies come from a deterministic stand-in. Any vendor whose key is missing runs in mock mode automatically, so you can switch vendors on one at a time. `GET /healthz` and Owner mode > Overview show which are live.
+To see the guided setup instead, start the server unclaimed (`MOCK_MODE=true SETUP_TOKEN=any-long-token npm run dev:server`), open the app, press **Set up my own AI self**, use `http://localhost:8787` and that token in step 3. Add `MOCK_REQUIRE_VERIFICATION=true` to see the ElevenLabs verification pause in the build step. Plain `http` is only accepted for a server on the same computer.
+
+Otherwise sign in with `OWNR-TEST-CODE`, press **Talk**, and use **Text** to chat. In mock mode there is no live video; the persona replies come from a deterministic stand-in. Any vendor whose key is missing runs in mock mode automatically, so you can switch vendors on one at a time. `GET /healthz` and Owner mode > Overview show which are live.
 
 ## Environment variables
 
-All of these are read by the **server**. The desktop app only needs `CLONEME_API_URL` (baked in at build time, see below). See `server/.env.example`.
+All of these are read by the **server**. With the guided setup the owner never has to touch them (the Render blueprint sets what is needed, and the app saves keys). The desktop app only needs `CLONEME_API_URL` for friends' installers (baked in at build time, see below); owners choose their server in step 3. See `server/.env.example`.
 
 | Variable | Secret | Purpose |
 | --- | --- | --- |
@@ -54,9 +56,13 @@ All of these are read by the **server**. The desktop app only needs `CLONEME_API
 | `DEEPGRAM_API_KEY` | yes | Nova-3 transcription for training |
 | `LLM_API_KEY` | yes | The model behind the persona (any OpenAI-compatible API) |
 | `LLM_BASE_URL`, `LLM_MODEL` | no | Defaults: `https://api.openai.com/v1`, `gpt-4o` |
-| `SESSION_SECRET` | yes | >= 32 chars; signs app tokens and media links. Required when `NODE_ENV=production` |
-| `PERSONA_LLM_SHARED_SECRET` | yes | >= 24 chars; Tavus sends it as the Bearer key to `/v1`. Required in production |
-| `PUBLIC_BASE_URL` | no | Public HTTPS URL of the server (Tavus calls `${PUBLIC_BASE_URL}/v1`) |
+| `SESSION_SECRET` | yes | >= 32 chars; signs app tokens and media links; also the vault key. Generated and stored on the server when not set |
+| `PERSONA_LLM_SHARED_SECRET` | yes | >= 24 chars; Tavus sends it as the Bearer key to `/v1`. Generated and stored when not set |
+| `PUBLIC_BASE_URL` | no | Public HTTPS URL of the server (Tavus calls `${PUBLIC_BASE_URL}/v1`); falls back to Render's `RENDER_EXTERNAL_URL` |
+| `SETUP_TOKEN` | yes | Lets the first person who knows it claim an unclaimed server from the app (one time) |
+| `PERSISTENT_STORAGE` | no | Set `true` when `DATA_DIR` is on a persistent disk; reported to the app in step 3 |
+| `INSTALLER_URL` | no | Link put in invite messages (default: latest GitHub release) |
+| `MOCK_REQUIRE_VERIFICATION` | no | Mock mode only: simulate ElevenLabs asking for manual voice verification |
 | `OWNER_NAME`, `OWNER_INVITE_CODE` | code: yes | Owner account. Without a code one is generated and printed once at first start |
 | `TAVUS_REPLICA_ID`, `TAVUS_PERSONA_ID`, `ELEVENLABS_VOICE_ID` | no | Written by the setup step; set to pin them |
 | `TAVUS_WEBHOOK_SECRET` | yes | Optional; protects `/webhooks/tavus` |
@@ -64,22 +70,38 @@ All of these are read by the **server**. The desktop app only needs `CLONEME_API
 
 Never commit keys. `.env` is git-ignored; on a host, use its secret manager.
 
-## Going live, step by step
+## Setting up your own AI self (guided, inside the app)
 
-1. **Accounts and keys.** Create Tavus, ElevenLabs (plan with Professional Voice Cloning), Deepgram and an LLM provider account. Put the four keys in the server's secret store.
-2. **Deploy the server** (any Node host with HTTPS and a persistent disk for `DATA_DIR`, for example Fly.io, Render or a small VM). `npm run build -w server && npm start -w server` with `NODE_ENV=production` and the env vars above. Copy the owner invite code from the first start log. Back up `DATA_DIR`.
-3. **Install the app and sign in** as owner (build it first, see "Windows installer").
-4. **Owner mode > Profile.** Fill in "About you", family and "never talk about" topics.
-5. **Owner mode > Upload.**
-   - *Voice samples*: 30+ minutes of clean speech.
-   - *Face training video*: about 2 minutes on camera. *Consent video*: you speaking Tavus's consent statement.
-   - *Style training*: more audio/video of you talking, plus texts, emails or notes in your voice.
-6. **Owner mode > Overview**, in order: *Create/refresh voice*, then *Create/refresh face*, wait for both to finish (Overview shows status; ElevenLabs may require completing voice verification in its dashboard before *Start voice training* works), then *Link persona*. Same steps from a shell: `npm run setup:voice`, `setup:replica`, `setup:persona` (run where `DATA_DIR` and env are available; `npm run cli -w server -- help` lists everything).
-7. **Refresh persona from uploads** (Overview). Review **Learned style**: approve or reject extracted facts (only approved facts are used in conversation).
-8. **People:** add each person, privately send them their invite code once (it cannot be shown again). Friends get the "AI version of ..." banner by default; family do not. Toggle per person. Revoke cuts access immediately and ends their call.
-9. **Pilot checks:** run `npm run measure:latency` (below) and do a real call yourself as owner first.
+Every go-live item is a step in the app's setup guide, so a new owner needs no docs and no developer. The guide opens from **Set up my own AI self** on the sign-in screen (and again any time from **Setup guide** on the owner's home screen, where every step can be reopened). Progress is saved after each action and the guide resumes where you stopped; a step's **Next** button stays disabled, with the reason shown, until its checks pass.
 
-Uploading more media later and pressing **Refresh persona** updates style and facts. Voice/face refresh creates a new clone and is a manual action because it costs money.
+| # | Step | What the owner does | What the app checks |
+| --- | --- | --- | --- |
+| 1 | Welcome | Reads what is built, what is stored where, ticks the consent box, types their legal name | Box ticked, name entered (the name goes into the consent statement) |
+| 2 | Accounts and keys | Follows the links to create Tavus, ElevenLabs (PVC plan), Deepgram and LLM accounts, pastes each key | Each key is tested with a real request to the vendor; ElevenLabs plans without Professional Voice Cloning are flagged |
+| 3 | Your server | Presses **Create my server on Render**, pastes the server address and the `SETUP_TOKEN` | `/healthz` shows online, https, persistent storage, claimable; the token claims the server and the owner code is shown once |
+| 4 | Record your voice | Reads 10 passages and answers 14 story questions in the app | Per-clip level, noise floor, clipping and silence checks; re-record any clip; 30:00 total required; resumable |
+| 5 | Record your face | Records about 2 minutes with an on-screen script | Oval framing guide, live lighting check, playback and re-take; at least 1:30 |
+| 6 | Consent video | Records the Tavus consent statement shown on screen | Statement built from the owner's name; at least 8 s |
+| 7 | More material (optional) | Adds existing recordings, videos, photos, texts | Voice files count toward the 30 minutes |
+| 8 | About you | Answers a questionnaire and lists family and friends | Three required answers |
+| 9 | Topics to avoid | Picks or adds topics, or ticks "nothing to avoid" | An explicit choice |
+| 10 | Invite people | Adds people, gets a private code and a ready-to-send message | At least one person, or "later" |
+| 11 | Build your AI self | Presses Start | Live status for transcription, voice clone, ElevenLabs verification (manual, with instructions and an "I've verified my voice" button), face replica, persona; failed stages can be retried |
+| 12 | Test call | Talks to their own AI self, then **Finish setup** | At least one completed test call |
+
+### Hosting choice: Render one-click blueprint
+
+The simplest path for a non-technical owner is [Render](https://render.com) using `render.yaml` and the root `Dockerfile`: press one button, accept the Starter plan, wait a few minutes. The blueprint gives the service a public https address, a persistent disk for `DATA_DIR`, generated `SESSION_SECRET` and `PERSONA_LLM_SHARED_SECRET`, and a generated `SETUP_TOKEN`. Render's Starter plan plus the 10 GB disk is roughly $10 a month (check Render's current pricing). The owner proves it is their server by pasting that `SETUP_TOKEN` into the app; the first valid claim creates the owner account and then claiming is closed (`409`), so nobody else can take over a fresh server. Re-signing in later uses the owner code shown once at claim time. The deploy button URL lives in `desktop/src/shared/prompts.ts` (`DEPLOY_URL`); point it at your fork if you maintain one.
+
+Other hosts work too: any host that runs the `Dockerfile` with the env vars below and a persistent `DATA_DIR`.
+
+### Where keys live
+
+Keys pasted in step 2 are tested by the desktop app's main process. Until the server exists they are held only in that process's memory, never written to disk or shown to the page again; when the server is claimed they are sent over https to `PUT /api/owner/keys`, which re-tests them and stores them encrypted (AES-256-GCM, key derived from `SESSION_SECRET`) in `DATA_DIR/secrets.enc.json`. Environment variables, if set, still work and are used when no app-saved key exists. Keys are never returned by any endpoint.
+
+### Developer fallback
+
+You can still run things from a shell (`npm run setup:voice`, `setup:replica`, `setup:persona`; `npm run cli -w server -- help`), and Owner mode > Upload / Overview remain for later changes.
 
 ## Windows installer and auto-update
 
@@ -113,7 +135,7 @@ It reports p50/p95 for session creation, persona time to first token and full re
 
 ## Tests
 
-`npm test` runs `server/test` (auth, broker, owner API, persona endpoint, memory isolation, avoid-topics, training pipeline, vendor request shapes, latency script) and `desktop/test` (API layer against the real backend, token store, UI flows in jsdom). `npm run typecheck` checks both packages. CI runs the same on every PR.
+`npm test` runs `server/test` (auth, broker, owner API, key vault and verification, setup-token claim, guided build, persona endpoint, memory isolation, avoid-topics, training pipeline, vendor request shapes, latency script) and `desktop/test` (API layer and onboarding handlers against the real backend, token store, wizard state machine and validation, audio/video quality analysis, invite parsing, and the whole wizard flow in jsdom with fake recorders). `npm run typecheck` checks both packages. CI runs the same on every PR.
 
 ## Assumptions to check against live vendors
 
@@ -124,6 +146,11 @@ The vendor clients follow the public docs but could not be run against real acco
 3. ElevenLabs PVC: verification step and the `fine_tuning.state` values used to report voice status.
 4. Daily room CSP in `desktop/src/renderer/index.html` (Daily loads scripts and connects to several `daily.co` hosts); loosen only if the call fails to connect.
 5. Electron `safeStorage.isEncryptionAvailable` is deprecated in Electron 45; migrate to the async variants before it is removed.
+6. The Tavus consent statement text in `CONSENT_TEMPLATE` (`desktop/src/shared/prompts.ts`) is the wording from Tavus's docs; confirm it against the current docs before the first real replica.
+7. In-app videos are recorded by Chromium as WebM (VP9/Opus). Confirm Tavus accepts WebM for `train_video_url` and `consent_video_url`; if it requires MP4, add an ffmpeg conversion in the server's replica step (the recording is stored unchanged).
+8. The vendor key checks use read-only endpoints (`GET /v2/replicas`, `/v1/user/subscription`, `/v1/projects`, `/models`); verify each accepts a restricted key. The ElevenLabs `can_use_professional_voice_cloning` flag drives the plan warning.
+9. The ElevenLabs verification instructions (Voices > your voice > Verify) follow their PVC docs and may need wording changes if their dashboard differs.
+10. The Render blueprint (`render.yaml`) and button URL need a first real deploy to confirm plan names, disk size and that the generated `SETUP_TOKEN` is visible to the owner.
 
 ## Out of scope for v1
 
